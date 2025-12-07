@@ -1,36 +1,50 @@
 precision mediump float;
 
-const highp float NOISE_GRANULARITY = 0.5 / 255.0;
 varying vec3 vertexPosition;
+varying vec2 uvCoordinates;
 
-uniform highp float resolution;
-uniform float miliseconds;
+uniform vec2 resolution;
+uniform float time;
 
-// Random number generator
-highp float random(highp vec2 coords) {
-   return fract(sin(dot(coords.xy, vec2(12.9898, 78.233))) * 43758.5453);
+const int[16] bayer4x4 = int[16](
+  0, 8, 2, 10,
+  12, 4, 14, 6,
+  3, 11, 1, 9,
+  15, 7, 13, 5
+);
+
+const vec3 color1 = vec3(0.0, 0.85, 0.91);
+const vec3 color2 = vec3(0.35, 0.0, 1.0);
+const vec3 color3 = vec3(0.64, 0.42, 1.0);
+
+float dither(float amount) {
+  // Technique used: https://en.wikipedia.org/wiki/Ordered_dithering
+  vec2 pixelPosition = gl_FragCoord.xy;
+  int mapX = int(mod(pixelPosition.x, 4.0));
+  int mapY = int(mod(pixelPosition.y, 4.0));
+  int mapValue = bayer4x4[mapX + mapY * 4];
+  float threshold = float(mapValue) * (1.0 / pow(4.0, 2.0)) - 0.5;
+  return threshold * amount;
+}
+
+vec3 pattern(vec3 color, float offset, float size) {
+  vec2 shaderUv = 20.0 * size * uvCoordinates / resolution;
+  shaderUv.x *= resolution.x / resolution.y;
+
+  float patternTime = (length(shaderUv) + time * offset) * 0.15;
+  float wave1 = sin(shaderUv.x + sin(patternTime * 2.0 * offset) + patternTime) * 2.0;
+  float wave2 = sin(shaderUv.y + cos(patternTime * 0.5 * offset) + patternTime) * 1.5;
+  float wave3 = sin(length(shaderUv) + patternTime) * 2.0;
+  float pattern = (wave1 + wave2 + wave3 + 3.0) / 6.0;
+
+  return color + pattern;
 }
 
 void main() {
-  // Gradient
-  float colorRange = 5.0;
-  float speed = miliseconds / 3500.0;
+  vec3 pattern1 = pattern(color1, 1.0, 2.0);
+  vec3 pattern2 = pattern(color2, 2.0, 5.0);
+  vec3 pattern3 = pattern(color3, 3.5, 3.0);
+  vec3 color = mix(mix(pattern1, pattern2, 1.0), pattern3, 0.5) / 1.4 + dither(0.02);
 
-  vec4 topLeft = (cos(vec4(0.6745, 0.3882, 1.0, 1.0) + speed) + colorRange / 2.0) / colorRange;
-  vec4 topRight = (sin(vec4(0.851, 0.4314, 0.9059, 1.0) + speed) + colorRange / 2.0) / colorRange;
-
-  vec4 bottomLeft = (cos(vec4(0.0, 0.0, 1.0, 1.0) + speed) + colorRange / 2.0) / colorRange;
-  vec4 bottomRight = (sin(vec4(1.0, 0.0, 0.4157, 1.0) + speed) + colorRange / 2.0) / colorRange;
-
-  vec4 topColor = mix(topLeft, topRight, vertexPosition.x);
-  vec4 bottomColor = mix(bottomLeft, bottomRight, vertexPosition.x);
-
-  vec4 color = mix(bottomColor, topColor, vertexPosition.y);
-  gl_FragColor = color;
-
-  // Dithering
-  // highp vec2 coordinates = gl_FragCoord.xy / vec2(resolution, resolution);
-  // highp vec4 fragmentColor = mix(bottomColor, topColor, 1.0 - coordinates.y);
-  // fragmentColor += mix(-NOISE_GRANULARITY, NOISE_GRANULARITY, random(coordinates));
-  // gl_FragColor = fragmentColor;
+  gl_FragColor = vec4(color, 1);
 }
